@@ -11,11 +11,12 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Edit2, Archive, Trash2, ChevronRight, X, Save } from 'lucide-react';
+import { Edit2, Archive, Trash2, ChevronRight, X, Save, MessageSquare } from 'lucide-react';
 import { updateNode, archiveBranch, deleteNode } from '../../api/topology';
 import { useNodeLineage } from '../../hooks/useTopology';
 import type { AtomicNode } from '../../types/node';
 import { ApiError } from '../../api/client';
+import { NodeChatPanel } from './NodeChatPanel';
 
 interface NodeDetailPanelProps {
   /** 当前选中的节点 */
@@ -44,6 +45,7 @@ export function NodeDetailPanel({
   onSelectNode,
 }: NodeDetailPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -177,6 +179,22 @@ export function NodeDetailPanel({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* 聊天按钮 */}
+            {!isEditing && (
+              <button
+                onClick={() => setShowChat(!showChat)}
+                disabled={loading}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+                  showChat
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                聊天
+              </button>
+            )}
+
             {/* 编辑按钮 */}
             {!isEditing && (
               <button
@@ -255,6 +273,13 @@ export function NodeDetailPanel({
       {error && (
         <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-900">
           {error}
+        </div>
+      )}
+
+      {/* 聊天面板 */}
+      {showChat && !isEditing && (
+        <div className="border-t border-slate-200">
+          <NodeChatPanel node={node} onNodeUpdated={onNodeUpdated} />
         </div>
       )}
 

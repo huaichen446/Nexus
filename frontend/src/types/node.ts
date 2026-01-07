@@ -72,8 +72,8 @@ export interface LlmSettings {
   /**
    * LLM 调用配置细节。
    */
-  provider: 'openai' | 'google' | 'anthropic' | 'local';
-  model: string; // e.g., "gpt-4-turbo", "gemini-1.5-pro"
+  provider: 'openai' | 'google' | 'anthropic' | 'local' | 'zhipuai';
+  model: string; // e.g., "gpt-4-turbo", "gemini-1.5-pro", "glm-4-flash"
   temperature: number;
   max_tokens?: number;
   top_p?: number;

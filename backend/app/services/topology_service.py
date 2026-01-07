@@ -258,9 +258,24 @@ class TopologyService:
             if "output_artifact" in data and data["output_artifact"] is not None:
                 node.output_artifact = data["output_artifact"]
             if "internal_state" in data and data["internal_state"] is not None:
-                node.internal_state = data["internal_state"]
+                # A. 取出当前数据库里的完整字典 (包含 _history_token_cache)
+                # 使用 dict() 确保我们拿到的是 Python 字典副本
+                current_state = dict(node.internal_state or {})
+                
+                # B. 取出前端传来的新数据 (不包含 cache)
+                new_state_data = data["internal_state"]
+                
+                # C. 执行字典更新 (Merge)
+                # 这会用新数据覆盖旧数据中已有的 key (如 system_instruction)，
+                # 但会保留新数据中没有的 key (如 _history_token_cache)
+                current_state.update(new_state_data)
+                
+                # D. 赋值回 ORM 对象，触发 SQLAlchemy 更新
+                node.internal_state = current_state
             if "config" in data and data["config"] is not None:
-                node.config = data["config"]
+                current_config = dict(node.config or {})
+                current_config.update(data["config"])
+                node.config = current_config
 
             # 简单字段
             if "fork_from_node_id" in data:

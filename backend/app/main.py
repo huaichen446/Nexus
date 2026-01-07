@@ -1,11 +1,16 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 # 1. 导入数据库引擎和基类（用于自动建表）
 from backend.app.database import engine, Base
-# 2. 导入你刚刚写好的路由
-from backend.app.routers import topology
+# 2. 导入路由
+from backend.app.routers import topology, chat
 
 # --- 数据库初始化 ---
 # 在应用启动前，自动在数据库中创建所有定义的模型表
@@ -30,8 +35,8 @@ app.add_middleware(
 )
 
 # --- 注册路由模块 ---
-# 我们把 topology 相关的接口挂载到 app 上
 app.include_router(topology.router)
+app.include_router(chat.router)
 
 # --- 基础健康检查接口 ---
 @app.get("/")

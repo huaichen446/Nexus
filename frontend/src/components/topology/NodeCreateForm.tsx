@@ -4,11 +4,38 @@
  * 用于创建新节点，包含所有必需字段的输入表单
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 import { createNode } from '../../api/topology';
 import type { AtomicNodeCreate } from '../../types/node';
 import { ApiError } from '../../api/client';
+
+// 模型列表映射（根据 provider）
+const MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'gpt-4', label: 'GPT-4' },
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  ],
+  anthropic: [
+    { value: 'claude-3-opus', label: 'Claude 3 Opus' },
+    { value: 'claude-3-sonnet', label: 'Claude 3 Sonnet' },
+    { value: 'claude-3-haiku', label: 'Claude 3 Haiku' },
+  ],
+  zhipuai: [
+    { value: 'glm-4-flash', label: 'GLM-4 Flash' },
+    { value: 'glm-4', label: 'GLM-4' },
+    { value: 'glm-3-turbo', label: 'GLM-3 Turbo' },
+  ],
+  google: [
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+  ],
+  local: [
+    { value: 'local-llm', label: 'Local LLM' },
+  ],
+};
 
 interface NodeCreateFormProps {
   /** 项目 ID */
@@ -59,8 +86,9 @@ export function NodeCreateForm({
       execution_mode: 'manual',
       llm_settings: {
         provider: 'openai',
-        model: 'gpt-4-turbo',
+        model: 'gpt-4o',
         temperature: 0.7,
+        max_tokens: 1024,
       },
     },
   });
@@ -73,6 +101,30 @@ export function NodeCreateForm({
       parent_id: parentId,
     }));
   }, [projectId, parentId]);
+
+  // 根据 provider 获取可用的模型列表
+  const availableModels = useMemo(() => {
+    const provider = formData.config?.llm_settings?.provider || 'openai';
+    return MODEL_OPTIONS[provider] || MODEL_OPTIONS.openai;
+  }, [formData.config?.llm_settings?.provider]);
+
+  // 当 provider 改变时，自动重置为对应 provider 的第一个模型
+  const handleProviderChange = (newProvider: string) => {
+    const models = MODEL_OPTIONS[newProvider] || MODEL_OPTIONS.openai;
+    const defaultModel = models[0]?.value || 'gpt-4o';
+    
+    setFormData({
+      ...formData,
+      config: {
+        ...formData.config!,
+        llm_settings: {
+          ...formData.config!.llm_settings!,
+          provider: newProvider as any,
+          model: defaultModel,
+        },
+      },
+    });
+  };
 
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
@@ -140,8 +192,9 @@ export function NodeCreateForm({
           execution_mode: 'manual',
           llm_settings: {
             provider: 'openai',
-            model: 'gpt-4-turbo',
+            model: 'gpt-4o',
             temperature: 0.7,
+            max_tokens: 1024,
           },
         },
       });
@@ -297,32 +350,107 @@ export function NodeCreateForm({
           </div>
 
           {/* LLM 配置 */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              LLM 模型
-            </label>
-            <select
-              value={formData.config?.llm_settings?.model || 'gpt-4-turbo'}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  config: {
-                    ...formData.config!,
-                    llm_settings: {
-                      ...formData.config!.llm_settings!,
-                      model: e.target.value,
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                LLM Provider
+              </label>
+              <select
+                value={formData.config?.llm_settings?.provider || 'openai'}
+                onChange={(e) => handleProviderChange(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="zhipuai">智谱AI (ZhipuAI)</option>
+                <option value="google">Google</option>
+                <option value="local">Local</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                LLM 模型
+              </label>
+              <select
+                value={formData.config?.llm_settings?.model || availableModels[0]?.value || 'gpt-4o'}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    config: {
+                      ...formData.config!,
+                      llm_settings: {
+                        ...formData.config!.llm_settings!,
+                        model: e.target.value,
+                      },
                     },
-                  },
-                })
-              }
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
-            >
-              <option value="gpt-4-turbo">GPT-4 Turbo</option>
-              <option value="gpt-4">GPT-4</option>
-              <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-              <option value="claude-3-opus">Claude 3 Opus</option>
-              <option value="claude-3-sonnet">Claude 3 Sonnet</option>
-            </select>
+                  })
+                }
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+              >
+                {availableModels.map((model) => (
+                  <option key={model.value} value={model.value}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Temperature
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={formData.config?.llm_settings?.temperature ?? 0.7}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      config: {
+                        ...formData.config!,
+                        llm_settings: {
+                          ...formData.config!.llm_settings!,
+                          temperature: parseFloat(e.target.value) || 0.7,
+                        },
+                      },
+                    })
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+                <p className="mt-1 text-xs text-slate-500">范围: 0-2</p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Max Tokens
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="32000"
+                  step="1"
+                  value={formData.config?.llm_settings?.max_tokens ?? 1024}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      config: {
+                        ...formData.config!,
+                        llm_settings: {
+                          ...formData.config!.llm_settings!,
+                          max_tokens: parseInt(e.target.value) || 1024,
+                        },
+                      },
+                    })
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/20"
+                />
+                <p className="mt-1 text-xs text-slate-500">默认: 1024</p>
+              </div>
+            </div>
           </div>
 
           {/* 执行模式 */}

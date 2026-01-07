@@ -61,7 +61,10 @@ class ChatMessage(BaseModel):
 class NodeInternalState(BaseModel):
     """
     内部状态：沙盒环境。
-    这里的任何数据都是“私有”的，不会被子节点继承。
+    这里的任何数据都是"私有"的，不会被子节点继承。
+    
+    Note: 内部实现字段（如 _history_token_cache）存储在数据库中，
+    但不会在 API 响应中暴露。这些字段由后端自动管理，前端无需关心。
     """
     system_instruction: str = Field(
         ...,
@@ -76,13 +79,18 @@ class NodeInternalState(BaseModel):
         description="临时变量 (Scratchpad)。用户可以在此存储临时的 JSON 变量或笔记，用于辅助 Prompt 编写。"
     )
 
+    # Pydantic v2 默认 extra = "ignore"，这意味着：
+    # - 额外字段（如 _history_token_cache）会被忽略，不会在 API 响应中暴露
+    # - 但数据库中的这些字段仍然会被保留（因为直接操作 JSON 字段）
+    # 这是期望的行为：内部实现细节不应该暴露给 API
+
 
 class LlmSettings(BaseModel):
     """
     LLM 调用配置细节。
     """
-    provider: Literal['openai', 'google', 'anthropic', 'local'] = Field(..., description="模型提供商")
-    model: str = Field(..., description="模型名称 (e.g., 'gpt-4-turbo')")
+    provider: Literal['openai', 'google', 'anthropic', 'zhipuai', 'local'] = Field(..., description="模型提供商")
+    model: str = Field(..., description="模型名称")
     temperature: float = Field(..., description="随机性参数")
     max_tokens: Optional[int] = Field(None, description="最大生成 Token 数")
     top_p: Optional[float] = Field(None, description="Nucleus sampling 参数")
@@ -228,7 +236,7 @@ class AtomicNode(BaseModel):
 
 
 # ==========================================
-# [新增] Request DTO: 专门用于创建节点的输入模型
+# Request DTO: 专门用于创建节点的输入模型
 # ==========================================
 class AtomicNodeCreate(BaseModel):
     """
@@ -286,3 +294,18 @@ class AtomicNodeUpdate(BaseModel):
 
     class Config:
         extra = "forbid"
+
+
+class NodeChatRequest(BaseModel):
+    """
+    专门用于 /nodes/{id}/chat/stream 接口的请求体
+    """
+    content: str = Field(..., description="用户的聊天输入内容")
+
+
+class PartialChatRequest(BaseModel):
+    """
+    专门用于 /nodes/{id}/chat/partial 接口的请求体
+    用于保存部分完成的助手消息（当用户取消流式响应时）
+    """
+    content: str = Field(..., description="部分完成的助手消息内容")
