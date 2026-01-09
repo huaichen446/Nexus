@@ -42,6 +42,8 @@ export interface ChatMessage {
   /**
    * 单个对话消息结构。
    */
+  /** 消息唯一标识符 (UUID) */
+  id?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;

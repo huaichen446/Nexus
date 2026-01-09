@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from backend.app.models import AtomicNodeModel
 from backend.app.schemas import AtomicNode, AtomicNodeCreate, AtomicNodeUpdate
+from backend.app.core.engines.pruning import pruning_engine
 
 logger = logging.getLogger(__name__)
 
@@ -388,31 +389,6 @@ class TopologyService:
             db.rollback()
             raise e
 
-    # def get_ancestor_chain(self, db: Session, node_id: str) -> List[AtomicNodeModel]:
-    #     """
-    #     寻址与溯源：获取从 Root 到当前节点的所有祖先列表。
-    #     返回顺序: [Root, Node_Level_1, ..., Parent, Self]
-    #     """
-    #     chain = []
-    #     current_node = self.get_node(db, node_id)
-    #
-    #     if not current_node:
-    #         raise ValueError(f"Node {node_id} not found")
-    #
-    #     # 向上回溯
-    #     while current_node:
-    #         chain.append(current_node)
-    #         if current_node.parent_id:
-    #             # 获取父节点
-    #             # 优化点：如果在大量数据下，可以考虑一次性取所有可能的祖先，但在树深不深的情况下，循环查简单直观
-    #             current_node = self.get_node(db, current_node.parent_id)
-    #         else:
-    #             # 到达 Root (parent_id is None)
-    #             break
-    #
-    #     # 反转列表，使其变为 Root -> Self
-    #     return list(reversed(chain))
-
     def get_ancestor_chain(self, db: Session, node_id: str) -> List[AtomicNodeModel]:
         """
         寻址与溯源：获取从 Root 到当前节点的所有祖先列表。
@@ -450,6 +426,73 @@ class TopologyService:
         # 递归 CTE 是 Self → Parent → ... → Root，所以反转
         models.reverse()
         return models
+
+    # ==========================================
+    # 消息修剪 (Micro-Pruning)
+    # ==========================================
+
+    def prune_message(
+        self,
+        db: Session,
+        node_id: str,
+        message_id: str
+    ) -> dict:
+        """
+        删除指定的用户消息及其所有后续消息（包括对应的 assistant 回复）。
+        
+        Args:
+            db: 数据库会话
+            node_id: 节点 ID
+            message_id: 要删除的消息 ID
+        
+        Returns:
+            dict: 包含删除统计信息的字典
+        
+        Raises:
+            ValueError: 如果节点或消息不存在，或消息不符合要求
+        """
+        # 1. 获取节点
+        node = self.get_node(db, node_id)
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+        
+        try:
+            # 2. 调用修剪引擎
+            result = pruning_engine.prune_conversation(
+                db=db,
+                node=node,
+                message_id=message_id,
+                include_target=True  # 删除消息时包含目标消息本身
+            )
+            
+            # 3. 提交事务
+            db.commit()
+            
+            logger.info(
+                f"Pruned message {message_id} from node {node_id}: "
+                f"deleted {result.deleted_count} messages"
+            )
+            
+            return {
+                "node_id": node_id,
+                "message_id": message_id,
+                "deleted_count": result.deleted_count,
+                "remaining_messages": len(result.remaining_messages)
+            }
+            
+        except ValueError as e:
+            # 业务逻辑错误（消息不存在、角色不符合等）
+            db.rollback()
+            logger.error(f"Pruning failed: {str(e)}")
+            raise e
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.exception("Database error during message pruning")
+            raise e
+        except Exception as e:
+            db.rollback()
+            logger.exception("Unexpected error during message pruning")
+            raise e
 
 # 单例导出
 topology_service = TopologyService()

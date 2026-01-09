@@ -10,7 +10,7 @@ load_dotenv()
 # 1. 导入数据库引擎和基类（用于自动建表）
 from backend.app.database import engine, Base
 # 2. 导入路由
-from backend.app.routers import topology, chat
+from backend.app.routers import topology, chat, messages
 
 # --- 数据库初始化 ---
 # 在应用启动前，自动在数据库中创建所有定义的模型表
@@ -37,6 +37,7 @@ app.add_middleware(
 # --- 注册路由模块 ---
 app.include_router(topology.router)
 app.include_router(chat.router)
+app.include_router(messages.router)
 
 # --- 基础健康检查接口 ---
 @app.get("/")

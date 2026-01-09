@@ -48,13 +48,17 @@ class ChatMessage(BaseModel):
     """
     单个对话消息结构。
     """
+    id: Optional[str] = Field(
+        default=None,
+        description="消息唯一标识符 (UUID)。如果未提供，后端会在添加消息时自动生成。"
+    )
     role: Literal['user', 'assistant', 'system'] = Field(..., description="消息角色")
     content: str = Field(..., description="消息内容")
     timestamp: float = Field(..., description="时间戳 (Epoch)")
 
     is_disabled: bool = Field(
         default=False,
-        description="是否被剪枝/屏蔽。如果为 True，Kernel 在组装 prompt 发给 LLM 时会直接跳过此消息。允许用户“软删除”错误的对话。"
+        description="是否被剪枝/屏蔽。如果为 True，Kernel 在组装 prompt 发给 LLM 时会直接跳过此消息。允许用户'软删除'错误的对话。"
     )
 
 

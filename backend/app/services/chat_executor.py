@@ -2,7 +2,8 @@ import os
 import time
 import json
 import logging
-import functools  
+import functools
+import uuid
 from typing import List, Dict, Any, Optional, Generator, TypedDict
 from datetime import datetime
 
@@ -180,6 +181,7 @@ class ChatExecutor:
         role: str,
         content: str,
         timestamp: Optional[float] = None,
+        message_id: Optional[str] = None,
     ) -> None:
         """
         Append a chat message into node.internal_state.chat_history and commit.
@@ -187,6 +189,10 @@ class ChatExecutor:
 
         IMPORTANT: internal_state is a JSON column.
         To trigger SQLAlchemy's change tracking, we must reassign the dict.
+        
+        Args:
+            message_id: 可选的消息 ID。如果提供，将使用该 ID；否则生成新的 UUID。
+                       用于编辑消息时保留原 message_id。
         """
         if timestamp is None:
             timestamp = time.time()
@@ -196,6 +202,7 @@ class ChatExecutor:
         history: List[Dict[str, Any]] = state.get("chat_history") or []
 
         history.append({
+            "id": message_id or str(uuid.uuid4()),  # 使用提供的 ID 或生成新的 UUID
             "role": role,
             "content": content,
             "timestamp": timestamp,

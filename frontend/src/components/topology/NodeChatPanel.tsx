@@ -10,8 +10,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Loader2, AlertCircle, Info } from 'lucide-react';
-import { streamNodeChat, savePartialResponse, type ChatStreamDelta } from '../../api/chat';
+import { 
+  streamNodeChat, 
+  savePartialResponse, 
+  deleteMessage,
+  editMessageAndRegenerate,
+  type ChatStreamDelta 
+} from '../../api/chat';
 import { getNode } from '../../api/topology';
+import { MessageBubble } from './MessageBubble';
 import type { AtomicNode, ChatMessage } from '../../types/node';
 
 interface NodeChatPanelProps {
@@ -39,10 +46,22 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
   // 从节点获取聊天历史（作为 fallback）
   const chatHistory = node.internal_state?.chat_history || [];
   
+  // 确保消息有 ID（如果没有，生成一个）
+  const ensureMessageId = (msg: ChatMessage, index: number): ChatMessage => {
+    if (!msg.id) {
+      // 使用 timestamp + index 生成一个临时 ID（仅用于前端）
+      // 后端会为消息生成真正的 UUID
+      return { ...msg, id: `temp-${msg.timestamp}-${index}` };
+    }
+    return msg;
+  };
+  
   // 初始化时从 node prop 加载历史消息到本地状态
   useEffect(() => {
     if (node.internal_state?.chat_history) {
-      setLocalMessages(node.internal_state.chat_history);
+      // 确保所有消息都有 ID
+      const messagesWithId = node.internal_state.chat_history.map(ensureMessageId);
+      setLocalMessages(messagesWithId);
     } else {
       setLocalMessages([]);
     }
@@ -152,6 +171,7 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
     
     // 乐观更新：立即将用户消息添加到本地状态
     const userMessageObj: ChatMessage = {
+      id: `temp-${Date.now()}-${Math.random()}`, // 临时 ID，后端会生成真正的 UUID
       role: 'user',
       content: userMessage,
       timestamp: Date.now() / 1000,
@@ -331,6 +351,183 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
     }
   };
 
+  // 处理删除消息
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!messageId || isStreaming) return;
+
+    try {
+      setError(null);
+      // 调用删除 API
+      const result = await deleteMessage(node.id, messageId);
+      
+      // 乐观更新：从本地状态中删除消息及其后续消息
+      setLocalMessages((prevMessages) => {
+        const targetIndex = prevMessages.findIndex((msg) => msg.id === messageId);
+        if (targetIndex === -1) {
+          return prevMessages;
+        }
+        // 删除目标消息及其所有后续消息
+        return prevMessages.slice(0, targetIndex);
+      });
+
+      // 刷新节点数据以获取最新状态
+      try {
+        const updatedNode = await getNode(node.id);
+        if (updatedNode.internal_state?.chat_history) {
+          const messagesWithId = updatedNode.internal_state.chat_history.map(ensureMessageId);
+          setLocalMessages(messagesWithId);
+        }
+        onNodeUpdated?.(updatedNode);
+      } catch (err) {
+        console.error('Failed to refresh node after delete:', err);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除消息失败');
+      console.error('Failed to delete message:', err);
+    }
+  };
+
+  // 处理编辑消息
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    if (!messageId || !newContent.trim() || isStreaming) return;
+
+    try {
+      setError(null);
+      setCurrentResponse('');
+      setUsage(null);
+      setIsStreaming(true);
+      
+      // 重置滚动标志
+      userHasScrolledRef.current = false;
+      shouldAutoScrollRef.current = true;
+
+      // 乐观更新：先更新本地状态中的消息内容
+      setLocalMessages((prevMessages) => {
+        const newMessages = [...prevMessages];
+        const targetIndex = newMessages.findIndex((msg) => msg.id === messageId);
+        if (targetIndex === -1) {
+          return prevMessages;
+        }
+        
+        // 更新消息内容
+        newMessages[targetIndex] = {
+          ...newMessages[targetIndex],
+          content: newContent.trim(),
+          timestamp: Date.now() / 1000, // 使用新时间戳
+        };
+        
+        // 删除后续所有消息
+        return newMessages.slice(0, targetIndex + 1);
+      });
+
+      // 立即滚动到底部
+      setTimeout(() => scrollToBottom(true), 0);
+
+      // 调用编辑 API（流式返回）
+      abortControllerRef.current = editMessageAndRegenerate(
+        node.id,
+        messageId,
+        newContent.trim(),
+        // onDelta: 接收流式文本片段
+        (data: ChatStreamDelta) => {
+          if (data.delta) {
+            setCurrentResponse((prev) => {
+              const newResponse = prev + data.delta;
+              // 同时更新本地状态中的助手消息
+              setLocalMessages((prevMessages) => {
+                const newMessages = [...prevMessages];
+                const lastMsg = newMessages[newMessages.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant') {
+                  // 更新最后一条助手消息
+                  lastMsg.content = newResponse;
+                } else {
+                  // 添加新的助手消息
+                  newMessages.push({
+                    id: `temp-${Date.now()}`,
+                    role: 'assistant',
+                    content: newResponse,
+                    timestamp: Date.now() / 1000,
+                    is_disabled: false,
+                  });
+                }
+                return newMessages;
+              });
+              return newResponse;
+            });
+          }
+        },
+        // onDone: 完成时接收使用统计
+        async (data: ChatStreamDelta) => {
+          setIsStreaming(false);
+          setUsage(data.usage || null);
+          
+          // 在清空 currentResponse 之前，先保存最终内容到本地状态
+          setCurrentResponse((finalResponse) => {
+            setLocalMessages((prevMessages) => {
+              const newMessages = [...prevMessages];
+              const lastMsg = newMessages[newMessages.length - 1];
+              if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.content = finalResponse;
+              } else if (finalResponse) {
+                newMessages.push({
+                  id: `temp-${Date.now()}`,
+                  role: 'assistant',
+                  content: finalResponse,
+                  timestamp: Date.now() / 1000,
+                  is_disabled: false,
+                });
+              }
+              return newMessages;
+            });
+            return ''; // 清空 currentResponse
+          });
+          
+          // 刷新节点数据以获取更新后的历史记录（后台同步）
+          try {
+            const updatedNode = await getNode(node.id);
+            if (updatedNode.internal_state?.chat_history) {
+              const messagesWithId = updatedNode.internal_state.chat_history.map(ensureMessageId);
+              setLocalMessages(messagesWithId);
+            }
+            onNodeUpdated?.(updatedNode);
+          } catch (err) {
+            console.error('Failed to refresh node after edit:', err);
+          }
+        },
+        // onError: 错误处理
+        (error: Error) => {
+          setIsStreaming(false);
+          setError(error.message);
+          // 错误时回滚本地状态（恢复到编辑前的状态）
+          // 重新加载节点数据
+          getNode(node.id)
+            .then((updatedNode) => {
+              if (updatedNode.internal_state?.chat_history) {
+                const messagesWithId = updatedNode.internal_state.chat_history.map(ensureMessageId);
+                setLocalMessages(messagesWithId);
+              }
+              onNodeUpdated?.(updatedNode);
+            })
+            .catch((err) => {
+              console.error('Failed to refresh node after error:', err);
+            });
+        }
+      );
+    } catch (err) {
+      setIsStreaming(false);
+      setError(err instanceof Error ? err.message : '编辑消息失败');
+      console.error('Failed to edit message:', err);
+    }
+  };
+
+  // 处理复制消息
+  const handleCopyMessage = (content: string) => {
+    navigator.clipboard.writeText(content).catch((err) => {
+      console.error('Failed to copy:', err);
+      setError('复制失败');
+    });
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -377,46 +574,38 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
       >
         <div className="space-y-4">
           {/* 历史消息（使用本地状态，fallback 到 chatHistory） */}
-          {(localMessages.length > 0 ? localMessages : chatHistory).map((msg, index) => (
-            <div
-              key={index}
-              className={`flex ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                  msg.role === 'user'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-900'
-                }`}
-              >
-                <div className="text-sm whitespace-pre-wrap break-words">
-                  {msg.content}
-                </div>
-                <div
-                  className={`mt-1 text-xs ${
-                    msg.role === 'user'
-                      ? 'text-slate-300'
-                      : 'text-slate-500'
-                  }`}
-                >
-                  {new Date(msg.timestamp * 1000).toLocaleTimeString('zh-CN')}
-                </div>
-              </div>
-            </div>
-          ))}
+          {(localMessages.length > 0 ? localMessages : chatHistory.map((msg, idx) => ensureMessageId(msg, idx))).map((msg, index) => {
+            // 检查是否是当前流式响应的消息
+            const isCurrentStreaming = isStreaming && 
+              currentResponse && 
+              index === localMessages.length - 1 && 
+              msg.role === 'assistant';
+            
+            return (
+              <MessageBubble
+                key={msg.id || `msg-${index}`}
+                message={msg}
+                isStreaming={isCurrentStreaming}
+                onCopy={handleCopyMessage}
+                onEdit={msg.role === 'user' ? handleEditMessage : undefined}
+                onDelete={msg.role === 'user' ? handleDeleteMessage : undefined}
+              />
+            );
+          })}
 
-          {/* 当前流式响应 */}
-          {isStreaming && currentResponse && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-lg bg-slate-100 px-4 py-2">
-                <div className="text-sm whitespace-pre-wrap break-words">
-                  {currentResponse}
-                  <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-1" />
-                </div>
-              </div>
-            </div>
+          {/* 当前流式响应（如果还没有添加到 localMessages） */}
+          {isStreaming && currentResponse && 
+           (!localMessages.length || localMessages[localMessages.length - 1]?.role !== 'assistant') && (
+            <MessageBubble
+              message={{
+                id: `streaming-${Date.now()}`,
+                role: 'assistant',
+                content: currentResponse,
+                timestamp: Date.now() / 1000,
+                is_disabled: false,
+              }}
+              isStreaming={true}
+            />
           )}
 
           {/* 滚动到底部的占位符 */}

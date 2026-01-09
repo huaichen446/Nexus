@@ -170,3 +170,153 @@ export async function savePartialResponse(
 
   return response.json();
 }
+
+/**
+ * 删除消息（修剪）
+ * 
+ * 删除指定的用户消息及其所有后续消息（包括对应的 assistant 回复）。
+ * 
+ * @param nodeId - 节点 ID
+ * @param messageId - 要删除的消息 ID
+ * @returns 删除结果（包含删除的消息数量）
+ */
+export async function deleteMessage(
+  nodeId: string,
+  messageId: string
+): Promise<{
+  node_id: string;
+  message_id: string;
+  deleted_count: number;
+  remaining_messages: number;
+}> {
+  const url = `${API_BASE_URL}/nodes/${nodeId}/messages/${messageId}`;
+  
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * 编辑用户消息并重新生成（流式）
+ * 
+ * 编辑指定的用户消息，删除其后续所有消息，然后重新生成 assistant 回复。
+ * 
+ * @param nodeId - 节点 ID
+ * @param messageId - 要编辑的消息 ID
+ * @param content - 新的消息内容
+ * @param onDelta - 接收到增量文本时的回调
+ * @param onDone - 完成时的回调（包含 usage 信息）
+ * @param onError - 错误时的回调
+ * @returns AbortController（可用于取消请求）
+ */
+export function editMessageAndRegenerate(
+  nodeId: string,
+  messageId: string,
+  content: string,
+  onDelta: ChatStreamCallback,
+  onDone?: ChatStreamCallback,
+  onError?: ChatStreamErrorCallback
+): AbortController {
+  const abortController = new AbortController();
+
+  const url = `${API_BASE_URL}/nodes/${nodeId}/messages/${messageId}`;
+
+  fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      content,
+      regenerate: true,
+    }),
+    signal: abortController.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          // 解码 chunk 并添加到 buffer
+          buffer += decoder.decode(value, { stream: true });
+
+          // 按行分割，处理完整的 SSE 消息
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留最后一个不完整的行
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6); // 移除 'data: ' 前缀
+                const data: ChatStreamDelta = JSON.parse(jsonStr);
+
+                // 处理增量文本
+                if (data.delta) {
+                  onDelta(data);
+                }
+
+                // 处理完成事件
+                if (data.event === 'done' && onDone) {
+                  onDone(data);
+                }
+
+                // 处理错误事件
+                if (data.event === 'error') {
+                  const error = new Error(data.message || 'Edit message stream error');
+                  if (onError) {
+                    onError(error);
+                  } else {
+                    throw error;
+                  }
+                }
+              } catch (parseError) {
+                console.warn('Failed to parse SSE data:', line, parseError);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    })
+    .catch((error) => {
+      if (error.name === 'AbortError') {
+        // 用户主动取消，不触发错误回调
+        return;
+      }
+      if (onError) {
+        onError(error);
+      } else {
+        console.error('Edit message stream error:', error);
+      }
+    });
+
+  return abortController;
+}
