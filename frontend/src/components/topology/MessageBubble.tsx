@@ -8,7 +8,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Edit2, Trash2, Check, X } from 'lucide-react';
+import { Copy, Edit2, Trash2, Check, X, GitBranch, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage } from '../../types/node';
 
@@ -23,6 +23,10 @@ interface MessageBubbleProps {
   onEdit?: (messageId: string, newContent: string) => void;
   /** 删除消息回调 */
   onDelete?: (messageId: string) => void;
+  /** 分叉消息回调 */
+  onBranch?: (messageId: string) => void;
+  /** 是否正在分叉（显示加载状态） */
+  isBranching?: boolean;
 }
 
 export function MessageBubble({
@@ -31,6 +35,8 @@ export function MessageBubble({
   onCopy,
   onEdit,
   onDelete,
+  onBranch,
+  isBranching = false,
 }: MessageBubbleProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -96,6 +102,17 @@ export function MessageBubble({
     }
     if (onDelete && window.confirm('确定要删除这条消息及其后续所有消息吗？')) {
       onDelete(message.id);
+    }
+  };
+
+  // 处理分叉
+  const handleBranch = () => {
+    if (!message.id) {
+      console.warn('Message ID is required for branching');
+      return;
+    }
+    if (onBranch && !isBranching) {
+      onBranch(message.id);
     }
   };
 
@@ -166,12 +183,43 @@ export function MessageBubble({
                   <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-1" />
                 )}
               </div>
-              <div
-                className={`mt-1 text-xs ${
-                  isUserMessage ? 'text-slate-300' : 'text-slate-500'
-                }`}
-              >
-                {new Date(message.timestamp * 1000).toLocaleTimeString('zh-CN')}
+              {/* 底部栏：时间戳和操作按钮 */}
+              <div className="mt-2 flex items-center justify-between">
+                <div
+                  className={`text-xs ${
+                    isUserMessage ? 'text-slate-300' : 'text-slate-500'
+                  }`}
+                >
+                  {new Date(message.timestamp * 1000).toLocaleTimeString('zh-CN')}
+                </div>
+                {/* AI 消息的操作按钮（始终可见） */}
+                {!isUserMessage && (
+                  <div className="flex items-center gap-1">
+                    {onCopy && (
+                      <button
+                        onClick={handleCopy}
+                        className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
+                        title="复制"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {onBranch && (
+                      <button
+                        onClick={handleBranch}
+                        disabled={isBranching || isStreaming}
+                        className="p-1.5 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="创建分支"
+                      >
+                        {isBranching ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <GitBranch className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           )}
