@@ -9,6 +9,7 @@ import { NodeTree } from "../topology/NodeTree";
 import { NodeList } from "../topology/NodeList";
 import { NodeCreateForm } from "../topology/NodeCreateForm";
 import { NodeDetailPanel } from "../topology/NodeDetailPanel";
+import { getNode } from "../../api/topology";
 import type { AtomicNode } from "../../types/node";
 
 export function MainLayout() {
@@ -29,6 +30,17 @@ export function MainLayout() {
   const handleNodeCreated = (node: AtomicNode) => {
     console.log('Node created:', node);
     handleRefresh();
+  };
+
+  // 导航到指定节点（用于分叉后跳转）
+  const handleNavigateToNode = async (nodeId: string) => {
+    try {
+      const newNode = await getNode(nodeId);
+      setSelectedNode(newNode);
+      handleRefresh(); // 刷新节点列表，新节点会出现在树中
+    } catch (err) {
+      console.error('Failed to navigate to node:', err);
+    }
   };
 
   return (
@@ -141,6 +153,7 @@ export function MainLayout() {
                     }}
                     onRefresh={handleRefresh}
                     onSelectNode={setSelectedNode}
+                    onNavigateToNode={handleNavigateToNode}
                   />
 
                   {/* 在节点详情下提供"创建子节点"入口 */}

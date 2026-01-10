@@ -33,6 +33,8 @@ interface NodeDetailPanelProps {
   onRefresh?: () => void;
   /** 选中其他节点的回调（用于面包屑跳转） */
   onSelectNode?: (node: AtomicNode) => void;
+  /** 导航到指定节点的回调（用于分叉后跳转） */
+  onNavigateToNode?: (nodeId: string) => void;
 }
 
 export function NodeDetailPanel({
@@ -43,6 +45,7 @@ export function NodeDetailPanel({
   onNodeArchived,
   onRefresh,
   onSelectNode,
+  onNavigateToNode,
 }: NodeDetailPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -279,7 +282,11 @@ export function NodeDetailPanel({
       {/* 聊天面板 */}
       {showChat && !isEditing && (
         <div className="border-t border-slate-200">
-          <NodeChatPanel node={node} onNodeUpdated={onNodeUpdated} />
+          <NodeChatPanel 
+            node={node} 
+            onNodeUpdated={onNodeUpdated}
+            onNavigateToNode={onNavigateToNode}
+          />
         </div>
       )}
 

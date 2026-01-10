@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from backend.app.database import get_db
 
 # AtomicNode: 用于响应 (Response)，包含完整字段 (depth, created_at, children_ids)
@@ -153,12 +154,51 @@ def archive_branch(node_id: str, db: Session = Depends(get_db)):
     """
     宏观剪枝 (Macro-Pruning):
     - 将当前节点及其所有子孙节点的 node_status 设为 'archived'。
-    - 默认树视图会过滤掉已归档节点，从而在 UI 上“剪掉”这一整条分支。
+    - 默认树视图会过滤掉已归档节点，从而在 UI 上"剪掉"这一整条分支。
     """
     try:
         affected = topology_service.archive_branch(db, node_id)
         return {"node_id": node_id, "archived_count": affected}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+# ==========================================
+# 10. 对话分叉 (Fork Conversation)
+# ==========================================
+class ForkRequest(BaseModel):
+    """分叉请求体"""
+    message_id: str
+    user_id: str
+
+
+@router.post("/{node_id}/fork")
+def fork_branch(
+    node_id: str,
+    body: ForkRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    对话分叉 (Deep Branching):
+    - 在指定的 AI 响应消息处创建新分支。
+    - 新节点是源节点的兄弟节点（Sibling Strategy），继承相同的父节点。
+    - 复制消息历史到目标消息（包含目标消息）。
+    """
+    try:
+        result = topology_service.fork_branch(
+            db=db,
+            node_id=node_id,
+            message_id=body.message_id,
+            user_id=body.user_id
+        )
+        # 返回新节点的完整信息
+        new_node = topology_service.get_node(db, result["new_node_id"])
+        if not new_node:
+            raise HTTPException(status_code=404, detail=f"Forked node {result['new_node_id']} not found")
+        return new_node
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")

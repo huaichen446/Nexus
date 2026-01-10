@@ -124,4 +124,26 @@ export async function healthCheck(): Promise<{
   return apiGet("/");
 }
 
+/**
+ * 对话分叉 (Fork Conversation)
+ * 
+ * 在指定的 AI 响应消息处创建新分支。
+ * 新节点是源节点的兄弟节点（Sibling Strategy），继承相同的父节点。
+ * 
+ * @param nodeId - 源节点 ID
+ * @param messageId - 目标消息 ID（必须是 AI 响应）
+ * @param userId - 用户 ID
+ * @returns 新节点的完整信息
+ */
+export async function forkBranch(
+  nodeId: string,
+  messageId: string,
+  userId: string
+): Promise<AtomicNode> {
+  return apiPost<AtomicNode>(`/nodes/${nodeId}/fork`, {
+    message_id: messageId,
+    user_id: userId,
+  });
+}
+
 

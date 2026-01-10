@@ -38,12 +38,11 @@
 
 ### 智谱AI (GLM-4-Flash) 集成
 
-**API Key**: `443c25f8fad94dc7aa6b2594fff2808c.TVfiGGDtRLdth2qX`
 
 **配置方式**:
 ```bash
 # 设置环境变量
-export ZHIPUAI_API_KEY=443c25f8fad94dc7aa6b2594fff2808c.TVfiGGDtRLdth2qX
+export ZHIPUAI_API_KEY=#####
 ```
 
 **节点配置**:

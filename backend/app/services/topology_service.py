@@ -7,6 +7,7 @@ from datetime import datetime
 from backend.app.models import AtomicNodeModel
 from backend.app.schemas import AtomicNode, AtomicNodeCreate, AtomicNodeUpdate
 from backend.app.core.engines.pruning import pruning_engine
+from backend.app.core.engines.forking import forking_engine
 
 logger = logging.getLogger(__name__)
 
@@ -492,6 +493,69 @@ class TopologyService:
         except Exception as e:
             db.rollback()
             logger.exception("Unexpected error during message pruning")
+            raise e
+
+    # ==========================================
+    # 对话分叉 (Deep Branching)
+    # ==========================================
+
+    def fork_branch(
+        self,
+        db: Session,
+        node_id: str,
+        message_id: str,
+        user_id: str
+    ) -> dict:
+        """
+        在指定消息处创建新分支（Sibling Strategy）。
+        
+        Args:
+            db: 数据库会话
+            node_id: 源节点 ID
+            message_id: 目标消息 ID（分叉点，必须是 LLM 响应）
+            user_id: 用户 ID（新节点的创建者）
+        
+        Returns:
+            dict: 包含新节点信息的字典
+        
+        Raises:
+            ValueError: 如果节点或消息不存在，或消息不符合要求（必须是 LLM 响应）
+        """
+        try:
+            # 调用分叉引擎
+            new_node_id = forking_engine.fork_conversation(
+                db=db,
+                source_node_id=node_id,
+                target_message_id=message_id,
+                user_id=user_id
+            )
+            
+            # 提交事务
+            db.commit()
+            
+            logger.info(
+                f"Forked branch from node {node_id} at message {message_id}: "
+                f"created new node {new_node_id}"
+            )
+            
+            return {
+                "source_node_id": node_id,
+                "message_id": message_id,
+                "new_node_id": new_node_id
+            }
+            
+        except ValueError as e:
+            # 业务逻辑错误（节点不存在、消息不存在、角色不符合等）
+            db.rollback()
+            logger.error(f"Forking failed: {str(e)}")
+            raise e
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.exception("Database error during branch forking")
+            raise e
+        except Exception as e:
+            db.rollback()
+            logger.exception("Unexpected error during branch forking")
             raise e
 
 # 单例导出

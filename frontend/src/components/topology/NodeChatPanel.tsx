@@ -17,7 +17,7 @@ import {
   editMessageAndRegenerate,
   type ChatStreamDelta 
 } from '../../api/chat';
-import { getNode } from '../../api/topology';
+import { getNode, forkBranch } from '../../api/topology';
 import { MessageBubble } from './MessageBubble';
 import type { AtomicNode, ChatMessage } from '../../types/node';
 
@@ -26,9 +26,11 @@ interface NodeChatPanelProps {
   node: AtomicNode;
   /** 节点更新后的回调 */
   onNodeUpdated?: (node: AtomicNode) => void;
+  /** 分叉后导航到新节点的回调 */
+  onNavigateToNode?: (nodeId: string) => void;
 }
 
-export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
+export function NodeChatPanel({ node, onNodeUpdated, onNavigateToNode }: NodeChatPanelProps) {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
   const [currentResponse, setCurrentResponse] = useState('');
   // 本地消息状态（乐观更新）
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -528,6 +531,50 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
     });
   };
 
+  // 处理分叉消息
+  const handleBranchMessage = async (messageId: string) => {
+    if (!messageId || branchingMessageId) return;
+
+    try {
+      setError(null);
+      setBranchingMessageId(messageId);
+
+      // 调用分叉 API
+      // 注意：这里使用一个固定的 user_id，实际应用中应该从用户上下文获取
+      const newNode = await forkBranch(node.id, messageId, 'current-user');
+
+      // 导航到新节点
+      if (onNavigateToNode) {
+        onNavigateToNode(newNode.id);
+      } else if (onNodeUpdated) {
+        // 如果没有专门的导航回调，通过更新节点来触发刷新
+        // 父组件可能会监听这个更新来导航
+        onNodeUpdated(newNode);
+      }
+
+      // 导航到新节点（通过设置新节点为选中节点）
+      // 由于 MainLayout 使用 selectedNode 状态，我们需要通过回调来更新它
+      // 但 NodeChatPanel 没有直接访问 setSelectedNode 的权限
+      // 我们需要通过 onNodeUpdated 回调传递新节点，让父组件处理导航
+      
+      // 实际上，由于 NodeChatPanel 是在 NodeDetailPanel 中使用的，
+      // 我们需要在 NodeDetailPanel 中处理导航逻辑
+      // 但为了简化，我们可以通过 window.location 或通过回调来实现
+      
+      // 最佳方案：通过 onNodeUpdated 传递新节点，让父组件处理导航
+      // 但这里我们需要一个专门的回调来处理分叉后的导航
+      
+      // 临时方案：直接调用 onNodeUpdated，让父组件知道有新节点
+      // 父组件（MainLayout）可以通过监听节点更新来导航到新节点
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建分支失败');
+      console.error('Failed to fork branch:', err);
+    } finally {
+      setBranchingMessageId(null);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -589,6 +636,8 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
                 onCopy={handleCopyMessage}
                 onEdit={msg.role === 'user' ? handleEditMessage : undefined}
                 onDelete={msg.role === 'user' ? handleDeleteMessage : undefined}
+                onBranch={msg.role === 'assistant' ? handleBranchMessage : undefined}
+                isBranching={msg.role === 'assistant' && branchingMessageId === msg.id}
               />
             );
           })}
@@ -605,6 +654,7 @@ export function NodeChatPanel({ node, onNodeUpdated }: NodeChatPanelProps) {
                 is_disabled: false,
               }}
               isStreaming={true}
+              onCopy={handleCopyMessage}
             />
           )}
 
