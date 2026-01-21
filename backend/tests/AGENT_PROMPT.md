@@ -179,7 +179,7 @@ python backend/tests/test_zhipuai_api.py
 运行完整功能测试:
 ```bash
 # 设置环境变量
-export ZHIPUAI_API_KEY=443c25f8fad94dc7aa6b2594fff2808c.TVfiGGDtRLdth2qX
+export ZHIPUAI_API_KEY=####
 
 # 运行测试
 python backend/tests/test_chatbot.py
