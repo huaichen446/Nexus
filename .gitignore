@@ -8,10 +8,9 @@ __pycache__/
 .env.local
 .env.*.local   
 
-# 本地数据库文件
+
 nexus.db
 
-# 不上传的测试文件
 backend/tests/test_zhipuai_api.py
-
 frontend/node_modules/
+.idea/
